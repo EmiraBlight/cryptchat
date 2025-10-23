@@ -79,12 +79,11 @@ def get_username():
     cur.execute("SELECT username FROM users where firebase_uid = %s", (uid,))
 
     try:
-        return jsonify({"status": "success", "username": cur.fetchone()[0]})
+        return jsonify({"status": "success", "username": cur.fetchone()[0]}), 200
     except:
-        return jsonify({"status": "failure"})
+        return jsonify({"status": "failure"}), 401
 
 
 if __name__ == "__main__":
     # For development
     app.run(host="0.0.0.0", port=5000, debug=True)
-
