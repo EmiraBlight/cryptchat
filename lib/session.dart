@@ -2,6 +2,7 @@ class UserSession {
   static String? username;
   static String? email;
   static String? uid;
+  static String? token;
 
   static void clear() {
     username = null;

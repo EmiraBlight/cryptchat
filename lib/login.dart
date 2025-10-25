@@ -42,6 +42,7 @@ class _LoginPageState extends State<LoginPage> {
 
       final user = credential.user;
       final idToken = await user?.getIdToken();
+      UserSession.token = idToken;
 
       if (idToken == null) throw Exception('Failed to get token');
       final response = await http.post(
