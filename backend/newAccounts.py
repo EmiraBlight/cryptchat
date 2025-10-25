@@ -163,6 +163,38 @@ def get_username():
     return jsonify({"success": "all users added", "chat adress": chatID }), 200
 
 
+@app.route("/search_users", methods=["GET"])
+def search_users():
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Missing token"}), 401
+    id_token = auth_header.split(" ")[1]
+
+    try:
+        decoded_token = auth.verify_id_token(id_token)
+        uid = decoded_token["uid"]
+    except Exception as e:
+        return jsonify({"error": "Invalid token", "details": str(e)}), 401
+
+    # Get the query string (e.g., ?q=sam)
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "Missing search query"}), 400
+
+    # Limit results to prevent loading all users
+    LIMIT = 10
+    cur.execute("""
+        SELECT username
+        FROM users
+        WHERE username ILIKE %s
+        AND firebase_uid != %s
+        ORDER BY username ASC
+        LIMIT %s
+    """, (f"%{query}%", uid, LIMIT))
+
+    users = [row[0] for row in cur.fetchall()]
+    return jsonify({"results": users}), 200
+
 if __name__ == "__main__":
     # For development
     app.run(host="0.0.0.0", port=5000, debug=True)
