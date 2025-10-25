@@ -5,7 +5,6 @@ import 'package:firebase_core/firebase_core.dart';
 
 import 'session.dart';
 import 'login.dart';
-import 'signup.dart';
 import 'chatpage.dart';
 
 import 'firebase_options.dart';

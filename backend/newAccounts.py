@@ -6,9 +6,14 @@ import firebase_admin
 from firebase_admin import credentials, auth
 import psycopg2
 from dotenv import load_dotenv
+import string
+import random
 
 # Load environment variables
 load_dotenv()
+
+
+avalaibleChars =  [string.ascii_uppercase] + [string.ascii_lowercase] + ['0','1','2','3','4','5','6','7','8','9']
 
 # Initialize Firebase Admin SDK
 cred = credentials.Certificate("firebase_admin.json")
@@ -83,7 +88,34 @@ def get_username():
     except:
         return jsonify({"status": "failure"}), 401
 
+@app.route("/createchat", methods=["POST"])
+def create_chat():
+    raise NotImplementedError #Not done coding this
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Missing token"}), 401
+    id_token = auth_header.split(" ")[1]
+
+    data = request.get_json()
+
+    users = data.get("users ").split(",") #get users that the request wants to add to the chat
+
+    while True:
+        chatID = [random.choice(avalaibleChars) for _ in range(256)]#62 char options by 256 => 62**256 options should be plenty
+        cur.execute("SELECT COUNT(*) FROM chatrooms WHERE chat_id = %s", (chatID,))#
+        if cur.fetchone()[0] > 0:
+            break#chose a new ID until there is not already a chat that it exists in
+
+
+    cur.execute("INSERT INTO chatrooms (chat_id) VALUES (%s)",(chatID,))#create table entry with nothing inside of it
+    cur.execute("")
+
+    db_users = []
+
+    for user in users:
+        pass #add user to DB
+
+    cur.execute("INSERT INTO chatrooms (users) VALUES (ARRAY[%s])",(db_users,))#This must be modified
 
 if __name__ == "__main__":
-    # For development
     app.run(host="0.0.0.0", port=5000, debug=True)
