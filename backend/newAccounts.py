@@ -13,7 +13,7 @@ import random
 load_dotenv()
 
 
-avalaibleChars =  [string.ascii_uppercase] + [string.ascii_lowercase] + ['0','1','2','3','4','5','6','7','8','9']
+avalaibleChars =  list(string.ascii_uppercase) + list(string.ascii_lowercase) + ['0','1','2','3','4','5','6','7','8','9']
 
 # Initialize Firebase Admin SDK
 cred = credentials.Certificate("firebase_admin.json")
@@ -101,7 +101,7 @@ def create_chat():
     users = data.get("users ").split(",") #get users that the request wants to add to the chat
 
     while True:
-        chatID = [random.choice(avalaibleChars) for _ in range(256)]#62 char options by 256 => 62**256 options should be plenty
+        chatID = [random.choice(avalaibleChars) for _ in range(255)] #62 char options by 256 => 62**256 options should be plenty
         cur.execute("SELECT COUNT(*) FROM chatrooms WHERE chat_id = %s", (chatID,))#
         if cur.fetchone()[0] > 0:
             break#chose a new ID until there is not already a chat that it exists in
@@ -113,7 +113,7 @@ def create_chat():
     db_users = []
 
     for user in users:
-        pass #add user to DB
+        pass #add user to DB need to parse into postgress list (single quotes and whatnot)
 
     cur.execute("INSERT INTO chatrooms (users) VALUES (ARRAY[%s])",(db_users,))#This must be modified
 
