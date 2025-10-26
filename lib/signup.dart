@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'keys.dart';
 
 class SignupPage extends StatefulWidget {
   final VoidCallback onSignedUp;
@@ -17,6 +18,7 @@ class _SignupPageState extends State<SignupPage> {
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
   final _usernameController = TextEditingController();
+
   String? _errorText;
   bool _loading = false;
 
@@ -24,8 +26,9 @@ class _SignupPageState extends State<SignupPage> {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final confirm = _confirmController.text.trim();
+    final username = _usernameController.text.trim();
 
-    if (email.isEmpty || password.isEmpty || confirm.isEmpty) {
+    if ([email, password, confirm, username].any((e) => e.isEmpty)) {
       setState(() => _errorText = 'Please fill all fields.');
       return;
     }
@@ -40,82 +43,54 @@ class _SignupPageState extends State<SignupPage> {
     });
 
     try {
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
+      final userCredential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(email: email, password: password);
+
+      final user = userCredential.user!;
+      final idToken = await user.getIdToken();
+
+      final response = await http.post(
+        Uri.parse('http://srv915664.hstgr.cloud:5000/users'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
+        body: jsonEncode({'username': username}),
       );
 
-      await _promptUsername();
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['status'] == 'success') {
+        final publicKeyBase64 = await KeyManager.generateAndStoreKeys(user.uid);
+
+        final pubKeyResponse = await http.post(
+          Uri.parse('http://srv915664.hstgr.cloud:5000/store_public_key'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $idToken',
+          },
+          body: jsonEncode({'public_key': publicKeyBase64}),
+        );
+
+        if (pubKeyResponse.statusCode != 200) {
+          setState(() => _errorText = 'Failed to store public key on backend.');
+          return;
+        }
+
+        widget.onSignedUp();
+      } else {
+        // Delete Firebase account if backend username creation fails
+        await user.delete();
+        setState(
+          () => _errorText = data['error'] ?? 'Failed to create username.',
+        );
+      }
     } on FirebaseAuthException catch (e) {
-      print("Signup error code: ${e.code}, message: ${e.message}");
       setState(() => _errorText = e.message ?? 'Sign-up failed.');
     } catch (e) {
       setState(() => _errorText = 'Unexpected error: $e');
     } finally {
       setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _promptUsername() async {
-    _usernameController.text = '';
-    bool usernameSet = false;
-
-    while (!usernameSet) {
-      final result = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text("Choose a username"),
-          content: TextField(
-            controller: _usernameController,
-            decoration: const InputDecoration(labelText: 'Username'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, null),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () =>
-                  Navigator.pop(context, _usernameController.text.trim()),
-              child: const Text("Save"),
-            ),
-          ],
-        ),
-      );
-
-      if (result == null || result.isEmpty) {
-        setState(() => _errorText = 'Username cannot be empty.');
-        return;
-      }
-
-      setState(() => _loading = true);
-
-      try {
-        final user = FirebaseAuth.instance.currentUser!;
-        final idToken = await user.getIdToken();
-
-        final response = await http.post(
-          Uri.parse('http://srv915664.hstgr.cloud:5000/users'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $idToken',
-          },
-          body: jsonEncode({'username': result}),
-        );
-
-        final data = jsonDecode(response.body);
-
-        if (response.statusCode == 200 && data['status'] == 'success') {
-          usernameSet = true;
-          widget.onSignedUp(); // finish signup flow
-        } else {
-          setState(() => _errorText = data['error'] ?? 'Username failed.');
-        }
-      } catch (e) {
-        setState(() => _errorText = 'Could not reach backend: $e');
-      } finally {
-        setState(() => _loading = false);
-      }
     }
   }
 
@@ -129,6 +104,11 @@ class _SignupPageState extends State<SignupPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              TextField(
+                controller: _usernameController,
+                decoration: const InputDecoration(labelText: 'Username'),
+              ),
+              const SizedBox(height: 10),
               TextField(
                 controller: _emailController,
                 decoration: const InputDecoration(labelText: 'Email'),

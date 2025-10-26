@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'session.dart';
 import 'signup.dart';
+import 'keys.dart';
 
 class LoginPage extends StatefulWidget {
   final void Function(String username) onLogin;
@@ -35,16 +36,30 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
+      // Sign in with Firebase
       final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
 
       final user = credential.user;
-      final idToken = await user?.getIdToken();
+      if (user == null) throw Exception('User not found');
+
+      // Ensure private key exists for this user
+      final hasKeys = await KeyManager.keysExist(user.uid);
+      if (!hasKeys) {
+        await FirebaseAuth.instance.signOut();
+        setState(
+          () => _errorText =
+              'Private key not found on this device. You can only log in from a device where this account was created.',
+        );
+        return;
+      }
+
+      final idToken = await user.getIdToken();
       UserSession.token = idToken;
 
-      if (idToken == null) throw Exception('Failed to get token');
+      // Fetch username from backend
       final response = await http.post(
         Uri.parse('http://srv915664.hstgr.cloud:5000/getusername'),
         headers: {
@@ -57,8 +72,8 @@ class _LoginPageState extends State<LoginPage> {
 
       if (response.statusCode == 200 && data['status'] == 'success') {
         UserSession.username = data['username'];
-        UserSession.email = user?.email;
-        UserSession.uid = user?.uid;
+        UserSession.email = user.email;
+        UserSession.uid = user.uid;
 
         widget.onLogin(data['username']);
       } else {
@@ -98,7 +113,7 @@ class _LoginPageState extends State<LoginPage> {
                   ? const CircularProgressIndicator()
                   : ElevatedButton(
                       onPressed: _handleLogin,
-                      child: const Text("Login / Sign Up"),
+                      child: const Text("Login"),
                     ),
               TextButton(
                 onPressed: () {
@@ -115,7 +130,6 @@ class _LoginPageState extends State<LoginPage> {
                 },
                 child: const Text("Don't have an account? Sign up here."),
               ),
-
               if (_errorText != null) ...[
                 const SizedBox(height: 10),
                 Text(_errorText!, style: const TextStyle(color: Colors.red)),
