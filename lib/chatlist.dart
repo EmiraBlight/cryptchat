@@ -384,7 +384,7 @@ class _ChatListPageState extends State<ChatListPage> {
   }) async {
     final storage = const FlutterSecureStorage();
     final storageKey = 'saved_chats_${UserSession.uid}';
-    final existingJson = await storage.read(key: storageKey);
+
     try {
       if (accepted) {
         if (chatID == null || privateKey == null) {
@@ -419,13 +419,13 @@ class _ChatListPageState extends State<ChatListPage> {
           ),
         );
 
-        // If user cancelled the dialog, just use the original name
+        // If user provided a name, use it
         if (result != null && result.isNotEmpty) {
           finalChatName = result;
         }
 
         // Load existing chats list (if any)
-        final existingJson = await storage.read(key: 'saved_chats');
+        final existingJson = await storage.read(key: storageKey);
         List<Map<String, String>> savedChats = [];
 
         if (existingJson != null && existingJson.isNotEmpty) {
@@ -440,18 +440,24 @@ class _ChatListPageState extends State<ChatListPage> {
           }
         }
 
-        // Add new chat to list
-        savedChats.add({
+        // Add new chat to savedChats
+        final newChat = {
           'chatID': chatID,
           'privateKey': privateKey,
           'chatName': finalChatName,
           'createdAt': DateTime.now().toIso8601String(),
-        });
+        };
+        savedChats.add(newChat);
 
         // Save updated list
         await storage.write(key: storageKey, value: jsonEncode(savedChats));
 
+        // --- Immediately update in-memory chat list for UI ---
         if (mounted) {
+          setState(() {
+            _savedChats.add(newChat); // Add to in-memory chat list
+          });
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text("Accepted invite and stored chat: $finalChatName"),
