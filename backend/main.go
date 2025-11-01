@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/auth"
@@ -398,6 +399,54 @@ func storePublicKey(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
+func deleteInvite(c *gin.Context) {
+	uid, err := getUIDFromToken(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: invalid token"})
+		return
+	}
+
+	var req struct {
+		InviteID int `json:"invite_id"`
+	}
+	if err := c.BindJSON(&req); err != nil || req.InviteID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or invalid invite_id"})
+		return
+	}
+
+	var exists bool
+	err = db.QueryRow(
+		context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM invitations WHERE id=$1 AND recipient_uid=$2)`,
+		req.InviteID, uid,
+	).Scan(&exists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	if !exists {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Invite not found or not yours"})
+		return
+	}
+
+	_, err = db.Exec(
+		context.Background(),
+		`DELETE FROM invitations WHERE id=$1 AND recipient_uid=$2`,
+		req.InviteID, uid,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete invite"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":    "success",
+		"invite_id": req.InviteID,
+		"message":   "Invite deleted successfully",
+	})
+}
+
 func getInvites(c *gin.Context) {
 	uid, err := getUIDFromToken(c)
 	if err != nil {
@@ -406,7 +455,7 @@ func getInvites(c *gin.Context) {
 	}
 
 	rows, err := db.Query(context.Background(),
-		`SELECT id, ciphertext, nonce, server_pubkey
+		`SELECT id, ciphertext, nonce, server_pubkey, created_at
 		 FROM invitations
 		 WHERE recipient_uid=$1
 		 ORDER BY created_at DESC`, uid)
@@ -427,20 +476,25 @@ func getInvites(c *gin.Context) {
 
 	var invites []Invite
 	for rows.Next() {
-		var inv Invite
-		if err := rows.Scan(&inv.ID, &inv.Ciphertext, &inv.Nonce, &inv.ServerPub); err == nil {
-			invites = append(invites, inv)
+		var (
+			inv        Invite
+			createdRaw time.Time
+		)
+		if err := rows.Scan(&inv.ID, &inv.Ciphertext, &inv.Nonce, &inv.ServerPub, &createdRaw); err != nil {
+			log.Printf("Error scanning invite row: %v", err)
+			continue
 		}
+		inv.CreatedAt = createdRaw.Format(time.RFC3339)
+		invites = append(invites, inv)
 	}
 
-	if len(invites) == 0 {
-		c.JSON(http.StatusOK, gin.H{"invites": []Invite{}})
+	if err := rows.Err(); err != nil {
+		log.Printf("Row iteration error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error reading invites"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"invites": invites,
-	})
+	c.JSON(http.StatusOK, gin.H{"invites": invites})
 }
 
 func main() {
@@ -486,6 +540,7 @@ func main() {
 	router.GET("/search_users", searchUsers)
 	router.POST("/store_public_key", storePublicKey)
 	router.GET("/getinvites", getInvites)
+	router.POST("/deleteinvite", deleteInvite)
 
 	log.Println("Server started on :5000")
 	router.Run(":5000")
