@@ -9,7 +9,6 @@ import 'package:intl/intl.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'decrypt_invites.dart';
 import 'package:flutter/services.dart';
-import 'package:local_auth/local_auth.dart';
 
 class ChatListPage extends StatefulWidget {
   final String username;
@@ -31,7 +30,7 @@ class _ChatListPageState extends State<ChatListPage> {
   final String? authToken = UserSession.token;
 
   Future<void> _createGroupChat(List<String> users, String chatName) async {
-    final url = Uri.parse("http://srv915664.hstgr.cloud:5000/createchat");
+    final url = Uri.parse("https://srv915664.hstgr.cloud:5000/createchat");
     try {
       final response = await http.post(
         url,
@@ -98,7 +97,7 @@ class _ChatListPageState extends State<ChatListPage> {
                       if (query.isEmpty) return const Iterable<String>.empty();
                       try {
                         final url = Uri.parse(
-                          "http://srv915664.hstgr.cloud:5000/search_users?q=$query",
+                          "https://srv915664.hstgr.cloud:5000/search_users?q=$query",
                         );
                         final response = await http.get(
                           url,
@@ -290,7 +289,7 @@ class _ChatListPageState extends State<ChatListPage> {
       setState(() => _isSearching = true);
       try {
         final url = Uri.parse(
-          "http://srv915664.hstgr.cloud:5000/search_users?q=$query",
+          "https://srv915664.hstgr.cloud:5000/search_users?q=$query",
         );
         final response = await http.get(
           url,
@@ -477,7 +476,7 @@ class _ChatListPageState extends State<ChatListPage> {
       }
 
       // --- Call deleteinvite API ---
-      final url = Uri.parse("http://srv915664.hstgr.cloud:5000/deleteinvite");
+      final url = Uri.parse("https://srv915664.hstgr.cloud:5000/deleteinvite");
       final response = await http.post(
         url,
         headers: {
@@ -530,7 +529,7 @@ class _ChatListPageState extends State<ChatListPage> {
   }
 
   Future<void> _fetchInvites() async {
-    final url = Uri.parse("http://srv915664.hstgr.cloud:5000/getinvites");
+    final url = Uri.parse("https://srv915664.hstgr.cloud:5000/getinvites");
     final storage = const FlutterSecureStorage();
 
     // Load user's keys from secure storage
@@ -809,6 +808,7 @@ class _ChatListPageState extends State<ChatListPage> {
               itemCount: _savedChats.length,
               itemBuilder: (context, index) {
                 final chat = _savedChats[index];
+                print(chat);
                 final chatName = chat['chatName'] ?? 'Unnamed Chat';
                 return ListTile(
                   title: Text(chatName),

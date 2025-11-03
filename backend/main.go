@@ -278,6 +278,7 @@ func createChat(c *gin.Context) {
 	_, err = db.Exec(context.Background(),
 		"INSERT INTO chatrooms (chat_id, char_users, messages, public_keys) VALUES ($1, $2, $3, $4)",
 		chatID, pq.Array(uids), pq.Array([]string{}), pq.Array(publicKeys))
+
 	if err != nil {
 		log.Println("DB Insert Error:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error", "details": err.Error()})
@@ -497,7 +498,135 @@ func getInvites(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"invites": invites})
 }
 
+// POST /addmessage
+func addMessage(c *gin.Context) {
+	uid, err := getUIDFromToken(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+		return
+	}
+
+	var req struct {
+		ChatID  string `json:"chat_id"`
+		Message string `json:"message"`
+	}
+	if err := c.BindJSON(&req); err != nil || req.ChatID == "" || req.Message == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+
+	var rawUsers string
+	err = db.QueryRow(context.Background(),
+		"SELECT array_to_string(char_users, ',', '*') FROM chatrooms WHERE chat_id=$1",
+		req.ChatID,
+	).Scan(&rawUsers)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "chat not found"})
+		return
+	}
+
+	chatUsers := strings.Split(rawUsers, ",")
+
+	found := false
+	for _, u := range chatUsers {
+		if u == uid {
+			found = true
+			break
+		}
+	}
+	if !found {
+		c.JSON(http.StatusForbidden, gin.H{"error": "user not in chat"})
+		return
+	}
+
+	// Append message
+	_, err = db.Exec(context.Background(),
+		"UPDATE chatrooms SET messages = array_append(messages, $1) WHERE chat_id=$2",
+		req.Message, req.ChatID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store message"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "message added"})
+
+}
+
+func getMessages(c *gin.Context) {
+	uid, err := getUIDFromToken(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+		return
+	}
+
+	var req struct {
+		ChatID string `json:"chat_id"`
+	}
+	if err := c.BindJSON(&req); err != nil || req.ChatID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+
+	// Get users and messages as raw text arrays first
+	var rawUsers, rawMessages []byte
+	err = db.QueryRow(
+		context.Background(),
+		"SELECT char_users::text, messages::text FROM chatrooms WHERE chat_id=$1",
+		req.ChatID,
+	).Scan(&rawUsers, &rawMessages)
+
+	if err != nil {
+		log.Printf("⚠️ getMessages failed for chat_id=%s: %v", req.ChatID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "chat not found"})
+		return
+	}
+
+	// Parse Postgres array strings into Go slices
+	chatUsers := []string{}
+	messages := []string{}
+
+	if len(rawUsers) > 0 {
+		// remove braces and split by comma
+		str := string(rawUsers)
+		str = strings.Trim(str, "{}")
+		if str != "" {
+			chatUsers = strings.Split(str, ",")
+		}
+	}
+
+	if len(rawMessages) > 0 {
+		str := string(rawMessages)
+		str = strings.Trim(str, "{}")
+		if str != "" {
+			messages = strings.Split(str, ",")
+		}
+	}
+
+	// Verify user is in chatroom
+	found := false
+	for _, u := range chatUsers {
+		if u == uid {
+			found = true
+			break
+		}
+	}
+	if !found {
+		c.JSON(http.StatusForbidden, gin.H{"error": "user not in chat"})
+		return
+	}
+
+	// Return messages
+	c.JSON(http.StatusOK, gin.H{
+		"chat_id":  req.ChatID,
+		"messages": messages,
+	})
+}
+
 func main() {
+
+	certFile := "/etc/letsencrypt/live/srv915664.hstgr.cloud/fullchain.pem"
+	keyFile := "/etc/letsencrypt/live/srv915664.hstgr.cloud/privkey.pem"
+
 	log.Println("Starting intiliation")
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env found, using system vars")
@@ -541,7 +670,9 @@ func main() {
 	router.POST("/store_public_key", storePublicKey)
 	router.GET("/getinvites", getInvites)
 	router.POST("/deleteinvite", deleteInvite)
+	router.POST("/add_message", addMessage)
+	router.POST("/get_messages", getMessages)
 
 	log.Println("Server started on :5000")
-	router.Run(":5000")
+	router.RunTLS(":5000", certFile, keyFile)
 }

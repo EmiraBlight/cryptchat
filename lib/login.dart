@@ -61,7 +61,7 @@ class _LoginPageState extends State<LoginPage> {
 
       // Fetch username from backend
       final response = await http.post(
-        Uri.parse('http://srv915664.hstgr.cloud:5000/getusername'),
+        Uri.parse('https://srv915664.hstgr.cloud:5000/getusername'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $idToken',

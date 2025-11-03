@@ -50,7 +50,7 @@ class _SignupPageState extends State<SignupPage> {
       final idToken = await user.getIdToken();
 
       final response = await http.post(
-        Uri.parse('http://srv915664.hstgr.cloud:5000/users'),
+        Uri.parse('https://srv915664.hstgr.cloud:5000/users'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $idToken',
@@ -64,7 +64,7 @@ class _SignupPageState extends State<SignupPage> {
         final publicKeyBase64 = await KeyManager.generateAndStoreKeys(user.uid);
 
         final pubKeyResponse = await http.post(
-          Uri.parse('http://srv915664.hstgr.cloud:5000/store_public_key'),
+          Uri.parse('https://srv915664.hstgr.cloud:5000/store_public_key'),
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $idToken',
