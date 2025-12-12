@@ -5,10 +5,192 @@ import 'chatpage.dart';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-
+import 'keys.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'decrypt_invites.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_nfc_kit/flutter_nfc_kit.dart';
+import 'host.dart';
+import 'client.dart';
+import 'dart:math';
+import 'package:ndef/ndef.dart' as ndef;
+
+import 'package:flutter/material.dart';
+import 'package:flutter_nfc_kit/flutter_nfc_kit.dart';
+import 'dart:convert';
+import 'keys.dart';
+import 'package:ndef/ndef.dart' as ndef;
+
+class UserNfcPage extends StatefulWidget {
+  final String publicKey;
+  const UserNfcPage({super.key, required this.publicKey});
+
+  @override
+  State<UserNfcPage> createState() => _UserNfcPageState();
+}
+
+class _UserNfcPageState extends State<UserNfcPage> {
+  bool isEmulating = false;
+
+  Future<void> emulateTag() async {
+  setState(() => isEmulating = true);
+
+  try {
+    await FlutterNfcKit.poll();
+
+    final record = ndef.TextRecord(text: widget.publicKey);
+    // Encode the record(s) into raw bytes
+    final payload = ndef.encodeNdefMessage([record]);
+
+    // Write NDEF — NOT transceive()  
+    await FlutterNfcKit.writeNDEFRecords([record]);
+    await FlutterNfcKit.finish();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Public key sent via NFC!')),
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error: $e')),
+    );
+  } finally {
+    setState(() => isEmulating = false);
+  }
+}
+
+
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('User NFC')),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            isEmulating
+                ? const CircularProgressIndicator()
+                : ElevatedButton(
+                    onPressed: emulateTag,
+                    child: const Text('Send Public Key via NFC'),
+                  ),
+            const SizedBox(height: 16),
+            const Text('Hold your phone to the host device'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+
+
+
+class HostNfcPage extends StatefulWidget {
+  const HostNfcPage({super.key});
+
+  @override
+  State<HostNfcPage> createState() => _HostNfcPageState();
+}
+
+class _HostNfcPageState extends State<HostNfcPage> {
+  final List<String> collectedPublicKeys = [];
+  bool isPolling = false;
+  late String chatId;
+
+  @override
+  void initState() {
+    super.initState();
+    chatId = generateChatRoomId();
+  }
+
+  Future<void> receiveUserPublicKey() async {
+    setState(() => isPolling = true);
+
+    try {
+      await FlutterNfcKit.poll();
+      final raw = await FlutterNfcKit.transceive("READ");
+      await FlutterNfcKit.finish();
+
+      if (raw == null || raw.isEmpty) {
+        throw Exception("No NFC data received");
+      }
+
+      // raw is a Uint8List from transceive()
+      final bytes = Uint8List.fromList(raw.codeUnits);
+      final decoded = ndef.decodeRawNdefMessage(bytes);
+
+      if (decoded.isEmpty) throw Exception("No NDEF records found");
+
+      final first = decoded.first;
+
+      String publicKey = "";
+
+      if (first is ndef.TextRecord) {
+        publicKey = first.text ?? "";
+      }
+
+      if (publicKey.isEmpty) throw Exception("No public key found");
+
+      setState(() => collectedPublicKeys.add(publicKey));
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Received public key!')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    } finally {
+      setState(() => isPolling = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Host NFC Session')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Text('Chatroom ID:\n$chatId',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            isPolling
+                ? const CircularProgressIndicator()
+                : ElevatedButton(
+                    onPressed: receiveUserPublicKey,
+                    child: const Text('Receive Public Key via NFC'),
+                  ),
+            const SizedBox(height: 24),
+            const Text('Collected Public Keys:'),
+            Expanded(
+              child: ListView.builder(
+                itemCount: collectedPublicKeys.length,
+                itemBuilder: (context, index) {
+                  return ListTile(
+                    title: Text(collectedPublicKeys[index]),
+                    leading: Text('${index + 1}'),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Generates a random chatroom ID
+String generateChatRoomId([int length = 256]) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  final rand = Random.secure();
+  return List.generate(length, (_) => chars[rand.nextInt(chars.length)]).join();
+}
 
 class ChatListPage extends StatefulWidget {
   final String username;
@@ -759,6 +941,83 @@ class _ChatListPageState extends State<ChatListPage> {
     }
   }
 
+Future<void> _showPublicKeyLookupDialog() async {
+  final controller = TextEditingController();
+  String? resultKey;
+
+  await showDialog(
+    context: context,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setState) {
+          return AlertDialog(
+            title: const Text("Lookup Public Key"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    hintText: "Enter username",
+                    prefixIcon: Icon(Icons.person),
+                  ),
+                ),
+                if (resultKey != null) ...[
+                  const SizedBox(height: 16),
+                  const Text("Public Key:", style: TextStyle(fontWeight: FontWeight.bold)),
+                  SelectableText(resultKey!),
+                ]
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("Close"),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final username = controller.text.trim();
+                  if (username.isEmpty) return;
+
+                  final url = Uri.parse("https://srv915664.hstgr.cloud:5000/get_public_keys");
+                  final response = await http.post(
+                    url,
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": "Bearer $authToken",
+                    },
+                    body: jsonEncode({"usernames": [username]}),
+                  );
+
+                  if (response.statusCode == 200) {
+                    final data = jsonDecode(response.body);
+                    if (data["results"].isNotEmpty) {
+                      setState(() {
+                        resultKey = data["results"][0]["public_key"];
+                      });
+                    } else {
+                      setState(() {
+                        resultKey = "❌ No public key found for user";
+                      });
+                    }
+                  } else {
+                    setState(() {
+                      resultKey = "❌ Error: ${response.body}";
+                    });
+                  }
+                },
+                child: const Text("Search"),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
+  
+
   @override
   void initState() {
     super.initState();
@@ -789,6 +1048,12 @@ class _ChatListPageState extends State<ChatListPage> {
             tooltip: "New Group Chat",
             onPressed: _showCreateGroupDialog,
           ),
+        IconButton(
+          icon: const Icon(Icons.vpn_lock),
+          tooltip: "Lookup Public Key",
+          onPressed: () => _showPublicKeyLookupDialog(),
+        ),
+
           // Logout
           IconButton(
             icon: const Icon(Icons.logout),

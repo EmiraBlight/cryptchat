@@ -622,6 +622,81 @@ func getMessages(c *gin.Context) {
 	})
 }
 
+
+func getPublicKeys(c *gin.Context) {
+    // Validate Firebase token
+    _, err := getUIDFromToken(c)
+    if err != nil {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+        return
+    }
+
+    // Parse request body
+    var req struct {
+        Usernames []string `json:"usernames"`
+    }
+    if err := c.BindJSON(&req); err != nil || len(req.Usernames) == 0 {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "missing or invalid usernames"})
+        return
+    }
+
+    // Remove empty or whitespace entries
+    cleaned := []string{}
+    for _, u := range req.Usernames {
+        u = strings.TrimSpace(u)
+        if u != "" {
+            cleaned = append(cleaned, u)
+        }
+    }
+    if len(cleaned) == 0 {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "no valid usernames provided"})
+        return
+    }
+
+    // Query multiple users in one SQL command
+    rows, err := db.Query(
+        context.Background(),
+        `SELECT username, firebase_uid, pub_key
+         FROM users
+         WHERE username = ANY($1)`,
+        cleaned,
+    )
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+        return
+    }
+    defer rows.Close()
+
+    type UserKey struct {
+        Username  string `json:"username"`
+        UID       string `json:"uid"`
+        PublicKey string `json:"public_key"`
+    }
+
+    results := []UserKey{}
+
+    for rows.Next() {
+        var u UserKey
+        if err := rows.Scan(&u.Username, &u.UID, &u.PublicKey); err != nil {
+            continue
+        }
+        results = append(results, u)
+    }
+
+    // Handle iteration errors
+    if err := rows.Err(); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "error reading results"})
+        return
+    }
+
+    // Return results (empty array is valid if none found)
+    c.JSON(http.StatusOK, gin.H{
+        "count":   len(results),
+        "results": results,
+    })
+}
+
+
 func main() {
 
 	certFile := "/etc/letsencrypt/live/srv915664.hstgr.cloud/fullchain.pem"
@@ -672,7 +747,10 @@ func main() {
 	router.POST("/deleteinvite", deleteInvite)
 	router.POST("/add_message", addMessage)
 	router.POST("/get_messages", getMessages)
+	router.POST("/get_public_keys", getPublicKeys)
 
+
+	// Start server
 	log.Println("Server started on :5000")
 	router.RunTLS(":5000", certFile, keyFile)
 }
